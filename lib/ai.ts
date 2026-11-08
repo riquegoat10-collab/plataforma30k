@@ -26,7 +26,31 @@ Regras que não podem ser quebradas:
 - Textos curtos e específicos do ramo. Evite clichês vazios como "excelência" e "qualidade incomparável".
 - A cor principal deve combinar com o ramo e ter bom contraste com texto branco.`;
 
+function apiMessage(e: InstanceType<typeof Anthropic.APIError>): string {
+  const body = e.error as { error?: { message?: string } } | undefined;
+  return body?.error?.message ?? e.message;
+}
+
+/** Traduz erros da API para mensagens que o usuário entende. */
+function friendlyError(e: unknown): Error {
+  if (e instanceof Anthropic.AuthenticationError) return new Error("Chave da API do Claude inválida. Confira ANTHROPIC_API_KEY.");
+  if (e instanceof Anthropic.PermissionDeniedError) return new Error("A chave da API do Claude não tem permissão para este modelo.");
+  if (e instanceof Anthropic.RateLimitError) return new Error("Muitas solicitações à IA agora. Tente de novo em alguns segundos.");
+  if (e instanceof Anthropic.BadRequestError) return new Error(`A API do Claude recusou o pedido: ${apiMessage(e)}`);
+  if (e instanceof Anthropic.APIConnectionError) return new Error("Não foi possível falar com a API do Claude. Verifique a conexão.");
+  if (e instanceof Anthropic.APIError) return new Error("A API do Claude está instável. Tente de novo.");
+  return e instanceof Error ? e : new Error("Erro inesperado na IA.");
+}
+
 async function callStructured(userContent: string): Promise<SiteContent> {
+  try {
+    return await callStructuredRaw(userContent);
+  } catch (e) {
+    throw friendlyError(e);
+  }
+}
+
+async function callStructuredRaw(userContent: string): Promise<SiteContent> {
   const response = await getClient().beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
